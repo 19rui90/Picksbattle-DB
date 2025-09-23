@@ -1,0 +1,16 @@
+{
+  "name": "pb-backend",
+  "version": "0.1.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.25.0",
+    "express": "^4.18.2",
+    "helmet": "^6.0.0",
+    "express-rate-limit": "^6.7.0",
+    "dotenv": "^16.0.0",
+    "cors": "^2.8.5"
+  }
+}
