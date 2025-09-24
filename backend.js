@@ -110,7 +110,7 @@ app.post("/logs", async (req, res) => {
     const filename = `logs/${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.txt`;
 
     const { error } = await supabase.storage
-      .from('pb-logs') // nome do bucket na Supabase
+      .from('logs') // nome do bucket na Supabase
       .upload(filename, logText, { contentType: 'text/plain' });
 
     if(error) throw error;
