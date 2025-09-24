@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import bodyParser from "body-parser";
 import { Pool } from "pg"; // Postgres. Se usares MySQL, trocas por mysql2
+import { createClient } from "@supabase/supabase-js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -21,6 +22,11 @@ const pool = new Pool({
 });
 
 // ===========================
+// Conexão à Supabase Storage
+// ===========================
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+
+// ===========================
 // Rotas
 // ===========================
 
@@ -29,7 +35,6 @@ app.post("/season_days", async (req, res) => {
   try {
     const data = req.body; // assume que é um array com objetos
     for (const item of data) {
-      // Exemplo de insert/upsert (Postgres)
       await pool.query(
         `INSERT INTO season_days (season, day, total_days, date_utc, updated_at)
          VALUES ($1, $2, $3, $4, $5)
@@ -86,6 +91,31 @@ app.post("/players", async (req, res) => {
       );
     }
     res.json({ status: "ok", inserted: data.length });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+// ===========================
+// Nova rota: logs
+// ===========================
+app.post("/logs", async (req, res) => {
+  try {
+    const data = req.body; // string ou array de strings
+    const logText = Array.isArray(data) ? data.join("\n") : data;
+
+    const now = new Date();
+    const pad = n => n.toString().padStart(2, "0");
+    const filename = `logs/${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.txt`;
+
+    const { error } = await supabase.storage
+      .from('pb-logs') // nome do bucket na Supabase
+      .upload(filename, logText, { contentType: 'text/plain' });
+
+    if(error) throw error;
+
+    res.json({ status: "ok", file: filename });
   } catch (err) {
     console.error(err);
     res.status(500).json({ status: "error", message: err.message });
