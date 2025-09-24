@@ -18,7 +18,7 @@ app.use(bodyParser.json());
 // Conexão à base de dados
 // ===========================
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL // render vai fornecer esta variável
+  connectionString: process.env.DATABASE_URL // Render fornece esta variável
 });
 
 // ===========================
@@ -102,8 +102,8 @@ app.post("/players", async (req, res) => {
 // ===========================
 app.post("/logs", async (req, res) => {
   try {
-    const data = req.body; // string ou array de strings
-    const logText = Array.isArray(data) ? data.join("\n") : data;
+    const data = req.body; // assume { content: "texto do log" }
+    const logText = typeof data === "object" && data.content ? data.content : JSON.stringify(data);
 
     const now = new Date();
     const pad = n => n.toString().padStart(2, "0");
@@ -113,7 +113,7 @@ app.post("/logs", async (req, res) => {
       .from('logs') // nome do bucket na Supabase
       .upload(filename, logText, { contentType: 'text/plain' });
 
-    if(error) throw error;
+    if (error) throw error;
 
     res.json({ status: "ok", file: filename });
   } catch (err) {
