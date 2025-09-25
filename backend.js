@@ -33,25 +33,20 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY
 // Rota para season_days
 app.post("/season_days", async (req, res) => {
   try {
-    const data = req.body; // assume que é um array com objetos
-    for (const item of data) {
-      await pool.query(
-        `INSERT INTO season_days (season, day, total_days, date_utc, updated_at)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (season) DO UPDATE SET
-           day = EXCLUDED.day,
-           total_days = EXCLUDED.total_days,
-           date_utc = EXCLUDED.date_utc,
-           updated_at = EXCLUDED.updated_at`,
-        [item.season, item.day, item.total_days, item.date_utc, item.updated_at]
-      );
-    }
-    res.json({ status: "ok", inserted: data.length });
+    const data = req.body[0]; // vem como array de 1
+    if (!data) return res.status(400).json({ error: "sem dados" });
+
+    // mantém apenas 1 linha → apaga as anteriores
+    await db("season_days").del();
+    await db("season_days").insert(data);
+
+    res.json({ success: true, updated: data });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ status: "error", message: err.message });
+    console.error("Erro em /season_days:", err);
+    res.status(500).json({ error: "db error" });
   }
 });
+
 
 // Rota para players
 app.post("/players", async (req, res) => {
