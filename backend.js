@@ -33,19 +33,23 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY
 // Rota para season_days
 app.post("/season_days", async (req, res) => {
   try {
-    const data = req.body[0]; // vem como array de 1
-    if (!data) return res.status(400).json({ error: "sem dados" });
+    const data = Array.isArray(req.body) ? req.body[0] : req.body;
+    if (!data) {
+      return res.status(400).json({ error: "sem dados recebidos" });
+    }
 
-    // mantém apenas 1 linha → apaga as anteriores
+    // Mantém só 1 linha na tabela
     await db("season_days").del();
     await db("season_days").insert(data);
 
+    console.log("✅ season_days atualizado:", data);
     res.json({ success: true, updated: data });
   } catch (err) {
-    console.error("Erro em /season_days:", err);
-    res.status(500).json({ error: "db error" });
+    console.error("❌ Erro em /season_days:", err);
+    res.status(500).json({ error: "db error", details: err.message });
   }
 });
+
 
 
 // Rota para players
