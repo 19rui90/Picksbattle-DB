@@ -1,124 +1,136 @@
 // backend.js
+
 import express from "express";
 import cors from "cors";
 import bodyParser from "body-parser";
-import { Pool } from "pg"; // Postgres. Se usares MySQL, trocas por mysql2
+import { Pool } from "pg";
 import { createClient } from "@supabase/supabase-js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ===========================
-// Configurações
-// ===========================
-app.use(cors()); // permite chamadas do Tampermonkey
+app.use(cors());
 app.use(bodyParser.json());
 
-// ===========================
-// Conexão à base de dados
-// ===========================
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL // Render fornece esta variável
+  connectionString: process.env.DATABASE_URL
 });
-
-// ===========================
-// Conexão à Supabase Storage
-// ===========================
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-// ===========================
-// Rotas
-// ===========================
+// --- Rota GET /players/:id (nova) ---
+app.get("/players/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rows } = await pool.query("SELECT * FROM players WHERE id = $1", [id]);
+    const player = rows[0];
+    if (!player) {
+      return res.status(404).json({ status: "not_found", message: `Player ${id} não existe` });
+    }
+    // Opcional: podes filtrar colunas ou converter JSON strings de volta para arrays se quiseres
+    res.json(player);
+  } catch (err) {
+    console.error("Erro em GET /players/:id:", err);
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
 
 // Rota para season_days
 app.post("/season_days", async (req, res) => {
   try {
-    const data = Array.isArray(req.body) ? req.body[0] : req.body;
-    if (!data) {
-      return res.status(400).json({ error: "sem dados recebidos" });
+    const data = req.body;
+    for (const item of data) {
+      await pool.query(
+        `INSERT INTO season_days (season, day, total_days, date_utc, updated_at)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (season) DO UPDATE
+           SET day = EXCLUDED.day,
+               total_days = EXCLUDED.total_days,
+               date_utc = EXCLUDED.date_utc,
+               updated_at = EXCLUDED.updated_at`,
+        [ item.season, item.day, item.total_days, item.date_utc, item.updated_at ]
+      );
     }
-
-    // Mantém só 1 linha na tabela
-    await db("season_days").del();
-    await db("season_days").insert(data);
-
-    console.log("✅ season_days atualizado:", data);
-    res.json({ success: true, updated: data });
+    res.json({ status: "ok", inserted: data.length });
   } catch (err) {
-    console.error("❌ Erro em /season_days:", err);
-    res.status(500).json({ error: "db error", details: err.message });
+    console.error("Erro em POST /season_days:", err);
+    res.status(500).json({ status: "error", message: err.message });
   }
 });
 
-
-
-// Rota para players
+// Rota para players (POST / upsert)
 app.post("/players", async (req, res) => {
-    try {
-        const data = req.body;
-        let insertedCount = 0;
+  try {
+    const data = req.body;
+    let insertedCount = 0;
+    for (const p of data) {
+      const { rows } = await pool.query("SELECT * FROM players WHERE id = $1", [p.id]);
+      const current = rows[0];
 
-        for (const p of data) {
-            const { rows } = await pool.query("SELECT * FROM players WHERE id = $1", [p.id]);
-            const current = rows[0];
+      const precisaAtualizar = !current || JSON.stringify(current) !== JSON.stringify({
+        id: p.id,
+        name: p.name,
+        multiplier: p.multiplier,
+        country: p.country,
+        continent: p.continent,
+        division: p.division,
+        national_league: JSON.stringify(p.national_league),
+        national_cup: JSON.stringify(p.national_cup),
+        champions_cup: JSON.stringify(p.champions_cup),
+        challenge_cup: JSON.stringify(p.challenge_cup),
+        conference_cup: JSON.stringify(p.conference_cup),
+        trophies_total: p.trophies_total,
+        register_date: p.register_date,
+        register_season: p.register_season,
+        active_status: p.active.status,
+        season: p.season,
+        updated_at: p.updated_at
+      });
 
-            const precisaAtualizar = !current || JSON.stringify(current) !== JSON.stringify({
-                id: p.id,
-                name: p.name,
-                multiplier: p.multiplier,
-                country: p.country,
-                continent: p.continent,
-                division: p.division,
-                national_league: JSON.stringify(p.national_league),
-                national_cup: JSON.stringify(p.national_cup),
-                champions_cup: JSON.stringify(p.champions_cup),
-                challenge_cup: JSON.stringify(p.challenge_cup),
-                conference_cup: JSON.stringify(p.conference_cup),
-                trophies_total: p.trophies_total,
-                register_date: p.register_date,
-                register_season: p.register_season,
-                active_status: p.active.status,
-                season: p.season,
-                updated_at: p.updated_at
-            });
-
-            if (precisaAtualizar) {
-                await pool.query(
-                    `INSERT INTO players 
-                    (id, name, multiplier, country, continent, division, national_league, national_cup, champions_cup, challenge_cup, conference_cup, trophies_total, register_date, register_season, active_status, season, created_at, updated_at)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
-                    ON CONFLICT (id) DO UPDATE 
-                    SET name = EXCLUDED.name, multiplier = EXCLUDED.multiplier, country = EXCLUDED.country,
-                        continent = EXCLUDED.continent, division = EXCLUDED.division,
-                        national_league = EXCLUDED.national_league, national_cup = EXCLUDED.national_cup,
-                        champions_cup = EXCLUDED.champions_cup, challenge_cup = EXCLUDED.challenge_cup,
-                        conference_cup = EXCLUDED.conference_cup, trophies_total = EXCLUDED.trophies_total,
-                        register_date = EXCLUDED.register_date, register_season = EXCLUDED.register_season,
-                        active_status = EXCLUDED.active_status, season = EXCLUDED.season,
-                        updated_at = EXCLUDED.updated_at`,
-                    [
-                        p.id, p.name, p.multiplier, p.country, p.continent, p.division,
-                        JSON.stringify(p.national_league), JSON.stringify(p.national_cup),
-                        JSON.stringify(p.champions_cup), JSON.stringify(p.challenge_cup),
-                        JSON.stringify(p.conference_cup), p.trophies_total, p.register_date,
-                        p.register_season, p.active.status, p.season, p.created_at, p.updated_at
-                    ]
-                );
-                insertedCount++;
-            }
-        }
-
-        res.json({ status: "ok", inserted: insertedCount });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ status: "error", message: err.message });
+      if (precisaAtualizar) {
+        await pool.query(
+          `INSERT INTO players (
+             id, name, multiplier, country, continent, division,
+             national_league, national_cup, champions_cup, challenge_cup, conference_cup,
+             trophies_total, register_date, register_season, active_status, season,
+             created_at, updated_at
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+           ON CONFLICT (id) DO UPDATE
+             SET name = EXCLUDED.name,
+                 multiplier = EXCLUDED.multiplier,
+                 country = EXCLUDED.country,
+                 continent = EXCLUDED.continent,
+                 division = EXCLUDED.division,
+                 national_league = EXCLUDED.national_league,
+                 national_cup = EXCLUDED.national_cup,
+                 champions_cup = EXCLUDED.champions_cup,
+                 challenge_cup = EXCLUDED.challenge_cup,
+                 conference_cup = EXCLUDED.conference_cup,
+                 trophies_total = EXCLUDED.trophies_total,
+                 register_date = EXCLUDED.register_date,
+                 register_season = EXCLUDED.register_season,
+                 active_status = EXCLUDED.active_status,
+                 season = EXCLUDED.season,
+                 updated_at = EXCLUDED.updated_at`,
+          [
+            p.id, p.name, p.multiplier, p.country, p.continent, p.division,
+            JSON.stringify(p.national_league), JSON.stringify(p.national_cup),
+            JSON.stringify(p.champions_cup), JSON.stringify(p.challenge_cup),
+            JSON.stringify(p.conference_cup), p.trophies_total, p.register_date,
+            p.register_season, p.active.status, p.season,
+            p.created_at, p.updated_at
+          ]
+        );
+        insertedCount++;
+      }
     }
+    res.json({ status: "ok", inserted: insertedCount });
+  } catch (err) {
+    console.error("Erro em POST /players:", err);
+    res.status(500).json({ status: "error", message: err.message });
+  }
 });
 
-
-// ===========================
-// Start do servidor
-// ===========================
+// Inicia servidor
 app.listen(PORT, () => {
   console.log(`Backend rodando na porta ${PORT}`);
 });
