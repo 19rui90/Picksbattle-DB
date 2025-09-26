@@ -6,6 +6,9 @@ const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 const { Pool } = require('pg');
 
+// 👇 isto tem de vir logo no início
+app.set("trust proxy", 1); 
+
 // ===========================
 // Escolha da conexão
 // ===========================
