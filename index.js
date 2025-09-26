@@ -1,4 +1,3 @@
-require('./backend.js'); // test
 require('dotenv').config();
 const express = require('express');
 const helmet = require('helmet');
