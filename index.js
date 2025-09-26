@@ -19,8 +19,11 @@ if (process.env.DATABASE_URL) {
   // Ligação direta Postgres (recomendado)
   dbClient = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false }
+    ssl: { rejectUnauthorized: false },
+    // 👇 isto força Node a usar IPv4
+    host: "db.muoieyuzedrfluplzpsr.supabase.co",
   });
+
   connectionType = "Postgres (DATABASE_URL)";
 } else if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
   // Fallback: API da Supabase
