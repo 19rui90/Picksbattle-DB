@@ -12,10 +12,43 @@ app.use(cors());
 app.use(bodyParser.json());
 
 // Pool Postgres - usa DATABASE_URL do Render
+// Pool Postgres - usa connection string direta
+/*
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  // ssl may be required depending on host; Render usually manages this.
+  ssl: { rejectUnauthorized: false }
 });
+*/
+//teste 1
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
+
+(async () => {
+  try {
+    const res = await pool.query('SELECT NOW()');
+    console.log("✅ Conexão OK:", res.rows[0]);
+  } catch(e) {
+    console.error("❌ Erro na conexão:", e);
+  } finally {
+    await pool.end();
+  }
+})();
+//teste 1
+
+(async () => {
+  try {
+    const res = await pool.query('SELECT NOW()');
+    console.log("✅ Conexão OK:", res.rows[0]);
+  } catch(e) {
+    console.error("❌ Erro na conexão:", e);
+  } finally {
+    await pool.end();
+  }
+})();
+
+
 
 // ---------- Helpers ----------
 function log(...args) { console.log(...args); }
