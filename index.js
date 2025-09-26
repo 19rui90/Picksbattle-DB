@@ -14,15 +14,21 @@ const { Pool } = require('pg');
 let dbClient;
 let connectionType;
 
-if (process.env.DATABASE_URL) {
-  // Ligação direta Postgres (recomendado)
-  dbClient = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
-    host: "db.muoieyuzedrfluplzpsr.supabase.co", // força IPv4 no Render
-  });
+const { parse } = require("pg-connection-string");
 
-  connectionType = "Postgres (DATABASE_URL)";
+if (process.env.DATABASE_URL) {
+  const config = parse(process.env.DATABASE_URL);
+  dbClient = new Pool({
+    user: config.user,
+    password: config.password,
+    host: "db.muoieyuzedrfluplzpsr.supabase.co", // 👈 força IPv4
+    port: config.port,
+    database: config.database,
+    ssl: { rejectUnauthorized: false }
+  });
+  connectionType = "Postgres (DATABASE_URL, IPv4)";
+
+
 } else if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
   // Fallback: API da Supabase
   dbClient = createClient(
@@ -61,7 +67,7 @@ function requireApiKey(req, res, next) {
 // ===========================
 app.get('/test-db', async (req, res) => {
   try {
-    if (connectionType === "Postgres (DATABASE_URL)") {
+    if (connectionType.startsWith("Postgres")) {
       const result = await dbClient.query("SELECT NOW()");
       return res.json({
         connection: connectionType,
