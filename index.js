@@ -6,8 +6,7 @@ const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 const { Pool } = require('pg');
 
-// 👇 isto tem de vir logo no início
-app.set("trust proxy", 1); 
+
 
 // ===========================
 // Escolha da conexão
@@ -20,8 +19,7 @@ if (process.env.DATABASE_URL) {
   dbClient = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false },
-    // 👇 isto força Node a usar IPv4
-    host: "db.muoieyuzedrfluplzpsr.supabase.co",
+    host: "db.muoieyuzedrfluplzpsr.supabase.co", // força IPv4 no Render
   });
 
   connectionType = "Postgres (DATABASE_URL)";
@@ -40,6 +38,8 @@ if (process.env.DATABASE_URL) {
 const BACKEND_API_KEY = process.env.BACKEND_API_KEY || null;
 
 const app = express();
+// 👇 isto tem de vir logo no início
+app.set("trust proxy", 1); 
 app.use(helmet());
 app.use(express.json({ limit: '200kb' }));
 app.use(cors());
