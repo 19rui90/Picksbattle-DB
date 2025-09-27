@@ -22,8 +22,8 @@ app.use(limiter);
 
 // PostgreSQL via DATABASE_URL (Supabase)
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }, // obrigatório para Supabase
+  connectionString: process.env.DATABASE_URL, // com ?sslmode=require
+  ssl: { rejectUnauthorized: false },
 });
 
 // Autenticação via BACKEND_API_KEY
