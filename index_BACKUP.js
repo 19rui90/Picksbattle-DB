@@ -165,4 +165,4 @@ app.post('/logs', requireApiKey, async (req, res) => {
 // ===========================
 const port = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send(`PB backend ok (${connectionType})`));
-app.listen(port, () => console.log(`🚀 PB backend listening on ${port} | Conexão: ${connectionType}`));
+app.listen(port, () => console.log(`🚀 PBB backend listening on ${port} | Conexão: ${connectionType}`));
