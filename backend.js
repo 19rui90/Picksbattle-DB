@@ -1,224 +1,177 @@
-// backend.js (CommonJS)
+// backend.js
+require('dotenv').config();
+const express = require('express');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const cors = require('cors');
+const { Pool } = require('pg');
+const { parse } = require("pg-connection-string");
 
-const express = require("express");
-const cors = require("cors");
-const bodyParser = require("body-parser");
-const { Pool } = require("pg");
+// ===========================
+// Conexão Postgres obrigatória
+// ===========================
+if (!process.env.DATABASE_URL) {
+  console.error("❌ DATABASE_URL não definida!");
+  process.exit(1);
+}
 
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.use(cors());
-app.use(bodyParser.json());
-
-// Pool Postgres - usa DATABASE_URL do Render
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+const config = parse(process.env.DATABASE_URL);
+const dbClient = new Pool({
+  user: config.user,
+  password: config.password,
+  host: config.host || "db.muoieyuzedrfluplzpsr.supabase.co", // força IPv4
+  port: config.port,
+  database: config.database,
   ssl: { rejectUnauthorized: false }
 });
+const connectionType = "Postgres (DATABASE_URL)";
 
-// ---------- Helpers ----------
-function log(...args) { console.log(...args); }
-function errlog(...args) { console.error(...args); }
+// ===========================
+// Configurações do Express
+// ===========================
+const BACKEND_API_KEY = process.env.BACKEND_API_KEY || null;
+const app = express();
+app.set("trust proxy", 1);
+app.use(helmet());
+app.use(express.json({ limit: '200kb' }));
+app.use(cors());
+app.use(rateLimit({ windowMs: 60 * 1000, max: 120 }));
 
-function checkApiKey(req, res, next) {
-  const key = req.headers["x-api-key"] || req.query["x-api-key"] || req.query.api_key;
-  const expected = process.env.BACKEND_API_KEY || "";
-  if (!expected) {
-    log("⚠️ BACKEND_API_KEY não definido no servidor — aceitando sem chave (dev mode).");
-    return next();
+// ===========================
+// Middleware API Key
+// ===========================
+function requireApiKey(req, res, next) {
+  const key = req.header('x-api-key') || req.query.api_key;
+  if (BACKEND_API_KEY && key !== BACKEND_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
   }
-  if (key === expected) return next();
-  return res.status(401).json({ status: "error", message: "Invalid API key" });
+  next();
 }
 
-function parseMaybeJson(value) {
-  if (value === null || value === undefined) return value;
-  if (Array.isArray(value)) return value;
-  if (typeof value === "object") return value;
-  if (typeof value === "string") {
-    try { return JSON.parse(value); } catch (e) { return value; }
-  }
-  return value;
-}
-
-// ---------- Routes ----------
-
-// Health
-app.get("/", (req, res) => res.json({ status: "ok", time: new Date().toISOString() }));
-
-// Teste DB
-app.get("/test-db", async (req, res) => {
+// ===========================
+// /test-db -> Mostra conexão ativa
+// ===========================
+app.get('/test-db', async (req, res) => {
   try {
-    const result = await pool.query("SELECT NOW()");
-    res.json({ status: "ok", db_time: result.rows[0] });
+    const result = await dbClient.query("SELECT NOW()");
+    return res.json({
+      connection: connectionType,
+      db_time: result.rows[0]
+    });
   } catch (err) {
-    res.status(500).json({ status: "error", message: err.message });
+    console.error("❌ Erro em /test-db", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
-// GET /players/:id
-app.get("/players/:id", checkApiKey, async (req, res) => {
-  const { id } = req.params;
-  try {
-    const { rows } = await pool.query("SELECT * FROM players WHERE id = $1 LIMIT 1", [id]);
-    const row = rows[0];
-    if (!row) return res.status(404).json({ status: "not_found", message: `Player ${id} not found` });
+// ===========================
+// endpoint /players
+// ===========================
+app.post('/players', requireApiKey, async (req, res) => {
+  const payload = Array.isArray(req.body) ? req.body : [req.body];
+  const client = await dbClient.connect();
 
-    const player = {
-      id: row.id,
-      name: row.name,
-      multiplier: row.multiplier,
-      country: row.country,
-      continent: row.continent,
-      division: row.division,
-      national_league: parseMaybeJson(row.national_league),
-      national_cup: parseMaybeJson(row.national_cup),
-      champions_cup: parseMaybeJson(row.champions_cup),
-      challenge_cup: parseMaybeJson(row.challenge_cup),
-      conference_cup: parseMaybeJson(row.conference_cup),
-      trophies_total: row.trophies_total,
-      register_date: row.register_date,
-      register_season: row.register_season,
-      active: { status: row.active_status || (row.active && row.active.status) || "Active", last_game: null },
-      season: row.season,
-      created_at: row.created_at,
-      updated_at: row.updated_at
-    };
-
-    return res.json(player);
-  } catch (err) {
-    errlog("Erro GET /players/:id", err);
-    return res.status(500).json({ status: "error", message: err.message });
-  }
-});
-
-// POST /players
-app.post("/players", checkApiKey, async (req, res) => {
-  const data = Array.isArray(req.body) ? req.body : [req.body];
-  if (!data.length) return res.status(400).json({ status: "error", message: "No player data provided" });
-
-  const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    let upserted = 0;
 
-    for (const p of data) {
-      const nl = JSON.stringify(p.national_league || []);
-      const nc = JSON.stringify(p.national_cup || []);
-      const ch = JSON.stringify(p.champions_cup || []);
-      const chg = JSON.stringify(p.challenge_cup || []);
-      const conf = JSON.stringify(p.conference_cup || []);
-
+    for (const p of payload) {
       const q = `
         INSERT INTO players (
           id, name, multiplier, country, continent, division,
           national_league, national_cup, champions_cup, challenge_cup, conference_cup,
-          trophies_total, register_date, register_season, active_status, season,
+          trophies_total, register_date, register_season, active, season,
           created_at, updated_at
         ) VALUES (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
+          $12,$13,$14,$15,$16,$17,$18
         )
         ON CONFLICT (id) DO UPDATE SET
-          name = EXCLUDED.name,
-          multiplier = EXCLUDED.multiplier,
-          country = EXCLUDED.country,
-          continent = EXCLUDED.continent,
-          division = EXCLUDED.division,
-          national_league = EXCLUDED.national_league,
-          national_cup = EXCLUDED.national_cup,
-          champions_cup = EXCLUDED.champions_cup,
-          challenge_cup = EXCLUDED.challenge_cup,
-          conference_cup = EXCLUDED.conference_cup,
-          trophies_total = EXCLUDED.trophies_total,
-          register_date = EXCLUDED.register_date,
-          register_season = EXCLUDED.register_season,
-          active_status = EXCLUDED.active_status,
-          season = EXCLUDED.season,
-          updated_at = EXCLUDED.updated_at
+          name=EXCLUDED.name, multiplier=EXCLUDED.multiplier,
+          country=EXCLUDED.country, continent=EXCLUDED.continent,
+          division=EXCLUDED.division,
+          national_league=EXCLUDED.national_league,
+          national_cup=EXCLUDED.national_cup,
+          champions_cup=EXCLUDED.champions_cup,
+          challenge_cup=EXCLUDED.challenge_cup,
+          conference_cup=EXCLUDED.conference_cup,
+          trophies_total=EXCLUDED.trophies_total,
+          register_date=EXCLUDED.register_date,
+          register_season=EXCLUDED.register_season,
+          active=EXCLUDED.active, season=EXCLUDED.season,
+          updated_at=EXCLUDED.updated_at
       `;
-
       const params = [
         p.id, p.name, p.multiplier, p.country, p.continent, p.division,
-        nl, nc, ch, chg, conf,
-        p.trophies_total, p.register_date, p.register_season, (p.active && p.active.status) || "Active", p.season,
-        p.created_at || new Date().toISOString(), p.updated_at || new Date().toISOString()
+        JSON.stringify(p.national_league || []),
+        JSON.stringify(p.national_cup || []),
+        JSON.stringify(p.champions_cup || []),
+        JSON.stringify(p.challenge_cup || []),
+        JSON.stringify(p.conference_cup || []),
+        p.trophies_total || 0,
+        p.register_date || null,
+        p.register_season || null,
+        JSON.stringify(p.active || { status: "Active", last_game: null }),
+        p.season || 1,
+        p.created_at || new Date().toISOString(),
+        p.updated_at || new Date().toISOString()
       ];
-
       await client.query(q, params);
-      upserted++;
     }
 
     await client.query("COMMIT");
-    log(`POST /players -> upserted ${upserted} players`);
-    return res.json({ status: "ok", upserted });
+    return res.json({ status: "ok", inserted: payload.length });
+
   } catch (err) {
     await client.query("ROLLBACK");
-    errlog("Erro POST /players", err);
-    return res.status(500).json({ status: "error", message: err.message });
+    console.error("❌ ERROR /players", err);
+    return res.status(500).json({ error: err.message });
   } finally {
     client.release();
   }
 });
 
-// POST /season_days
-app.post("/season_days", checkApiKey, async (req, res) => {
-  const data = Array.isArray(req.body) ? req.body : [req.body];
-  if (!data.length) return res.status(400).json({ status: "error", message: "No season_days data provided" });
+// ===========================
+// endpoint /season_days
+// ===========================
+app.post('/season_days', requireApiKey, async (req, res) => {
+  const payload = Array.isArray(req.body) ? req.body : [req.body];
+  const client = await dbClient.connect();
 
-  const client = await pool.connect();
   try {
     await client.query("BEGIN");
-
-    if (data.length === 1) {
-      const item = data[0];
-      await client.query("DELETE FROM season_days");
+    for (const s of payload) {
       await client.query(
         `INSERT INTO season_days (season, day, total_days, date_utc, updated_at)
-         VALUES ($1,$2,$3,$4,$5)`,
-        [item.season, item.day, item.total_days, item.date_utc, item.updated_at || new Date().toISOString()]
+         VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (season, day) DO UPDATE SET
+           total_days=EXCLUDED.total_days,
+           date_utc=EXCLUDED.date_utc,
+           updated_at=EXCLUDED.updated_at`,
+        [s.season, s.day, s.total_days, s.date_utc, s.updated_at || new Date().toISOString()]
       );
-      await client.query("COMMIT");
-      log("POST /season_days -> singleton write");
-      return res.json({ status: "ok", message: "season_days replaced (singleton)", inserted: 1 });
     }
-
-    let count = 0;
-    for (const item of data) {
-      const updateRes = await client.query(
-        `UPDATE season_days SET day=$2, total_days=$3, date_utc=$4, updated_at=$5 WHERE season=$1 RETURNING *`,
-        [item.season, item.day, item.total_days, item.date_utc, item.updated_at || new Date().toISOString()]
-      );
-      if (updateRes.rowCount === 0) {
-        await client.query(
-          `INSERT INTO season_days (season, day, total_days, date_utc, updated_at)
-           VALUES ($1,$2,$3,$4,$5)`,
-          [item.season, item.day, item.total_days, item.date_utc, item.updated_at || new Date().toISOString()]
-        );
-      }
-      count++;
-    }
-
     await client.query("COMMIT");
-    log(`POST /season_days -> upserted ${count} items`);
-    return res.json({ status: "ok", upserted: count });
+    return res.json({ status: "ok", inserted: payload.length });
   } catch (err) {
     await client.query("ROLLBACK");
-    errlog("Erro POST /season_days", err);
-    return res.status(500).json({ status: "error", message: err.message });
+    console.error("❌ ERROR /season_days", err);
+    return res.status(500).json({ error: err.message });
   } finally {
     client.release();
   }
 });
 
-// POST /logs
-app.post("/logs", checkApiKey, async (req, res) => {
-  const body = req.body || {};
-  log("LOG from userscript:", body.content || JSON.stringify(body).slice(0, 500));
-  res.json({ status: "ok" });
+// ===========================
+// endpoint /logs
+// ===========================
+app.post('/logs', requireApiKey, async (req, res) => {
+  console.log("📝 Log recebido:", req.body);
+  return res.json({ status: "ok", logged: true });
 });
 
-// Start
-app.listen(PORT, () => {
-  log(`Backend rodando na porta ${PORT}`);
-});
+// ===========================
+// root
+// ===========================
+const port = process.env.PORT || 3000;
+app.get('/', (req, res) => res.send(`PB backend ok (${connectionType})`));
+app.listen(port, () => console.log(`🚀 PB backend listening on ${port} | Conexão: ${connectionType}`));
