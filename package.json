@@ -1,9 +1,9 @@
 {
   "name": "pb-backend",
   "version": "0.1.0",
-  "main": "index.js",
+  "main": "backend.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node backend.js"
   },
   "dependencies": {
     "pg": "^8.11.3",
