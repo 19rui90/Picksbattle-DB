@@ -1,4 +1,4 @@
-// backend.js (unificado, CommonJS)
+// backend.js (CommonJS, Supabase compatível)
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -10,25 +10,23 @@ const app = express();
 app.use(express.json());
 app.use(helmet());
 
-// CORS - permite requests de qualquer origem (Tampermonkey)
+// CORS
 app.use(cors({ origin: '*' }));
 
-// Rate limit simples
+// Rate limit
 const limiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minuto
-  max: 60, // max 60 requests por IP por minuto
+  windowMs: 60 * 1000,
+  max: 60,
 });
 app.use(limiter);
 
-// PostgreSQL via Connection String
+// PostgreSQL via DATABASE_URL (Supabase)
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false, // necessário no Render
-  },
+  ssl: { rejectUnauthorized: false }, // obrigatório para Supabase
 });
 
-// Middleware de autenticação via BACKEND_API_KEY
+// Autenticação via BACKEND_API_KEY
 app.use((req, res, next) => {
   const key = req.headers['authorization']?.split(' ')[1];
   if (!key || key !== process.env.BACKEND_API_KEY) {
@@ -42,12 +40,12 @@ app.get('/ping', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date() });
 });
 
-// Endpoint para enviar logs
+// Endpoint para logs
 app.post('/logs', async (req, res) => {
   try {
     const log = req.body;
     console.log('Recebido log:', log);
-    // TODO: adicionar persistência no banco ou Supabase se necessário
+    // futuramente podes salvar no Postgres ou Supabase
     res.json({ success: true });
   } catch (err) {
     console.error('Erro ao enviar logs:', err);
@@ -55,13 +53,12 @@ app.post('/logs', async (req, res) => {
   }
 });
 
-// Endpoint para gerenciar jogadores
+// Endpoint para players
 app.post('/player', async (req, res) => {
   try {
     const player = req.body;
     console.log('Recebido jogador:', player);
 
-    // Exemplo de insert/update no Postgres
     const query = `
       INSERT INTO players(id, name, register_date)
       VALUES($1, $2, $3)
@@ -84,7 +81,7 @@ app.post('/player', async (req, res) => {
 (async () => {
   try {
     const client = await pool.connect();
-    await client.query('SELECT 1'); // Testa conexão
+    await client.query('SELECT 1'); // testa conexão
     client.release();
     console.log('Conexão à DB OK');
 
@@ -92,6 +89,6 @@ app.post('/player', async (req, res) => {
     app.listen(PORT, () => console.log(`Server rodando na porta ${PORT}`));
   } catch (err) {
     console.error('Erro ao conectar à DB:', err);
-    process.exit(1); // encerra a instância se DB falhar
+    process.exit(1); // encerra instância se DB falhar
   }
 })();
